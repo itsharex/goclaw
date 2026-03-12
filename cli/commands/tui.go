@@ -16,6 +16,7 @@ import (
 	"github.com/smallnest/goclaw/bus"
 	"github.com/smallnest/goclaw/cli/input"
 	"github.com/smallnest/goclaw/config"
+	"github.com/smallnest/goclaw/cron"
 	"github.com/smallnest/goclaw/internal"
 	"github.com/smallnest/goclaw/internal/logger"
 	"github.com/smallnest/goclaw/providers"
@@ -43,6 +44,7 @@ func NewTUIAgent(
 	workspace string,
 	maxIterations int,
 	skillsLoader *agent.SkillsLoader,
+	cronService *cron.Service,
 ) (*TUIAgent, error) {
 	toolRegistry := agent.NewToolRegistry()
 
@@ -78,6 +80,18 @@ func NewTUIAgent(
 	browserTool := tools.NewBrowserTool(true, 30)
 	for _, tool := range browserTool.GetTools() {
 		_ = toolRegistry.RegisterExisting(tool)
+	}
+
+	// Register cron tool if cron service is provided
+	if cronService != nil {
+		cronTool := tools.NewCronTool(cronService)
+		for _, tool := range cronTool.GetTools() {
+			if err := toolRegistry.RegisterExisting(tool); err != nil {
+				logger.Warn("Failed to register cron tool", zap.Error(err))
+			} else {
+				logger.Info("Cron tool registered in TUI")
+			}
+		}
 	}
 
 	// Create Agent
@@ -237,22 +251,38 @@ func runTUI(cmd *cobra.Command, args []string) {
 		if len(skills) > 0 {
 			logger.Info("Skills loaded", zap.Int("count", len(skills)))
 		}
-	}
 
+}
 	// Create TUI agent
 	maxIterations := cfg.Agents.Defaults.MaxIterations
 	if maxIterations == 0 {
 		maxIterations = 15
 	}
 
-	tuiAgent, err := NewTUIAgent(messageBus, sessionMgr, provider, contextBuilder, workspace, maxIterations, skillsLoader)
+	// Create context for agent and cron service
+	agentCtx, agentCancel := context.WithCancel(context.Background())
+
+	// Create Cron service (if enabled in config)
+	var cronService *cron.Service
+	if cfg.Tools.Cron.Enabled {
+		cronService, err = cron.NewService(cron.DefaultCronConfig(), messageBus)
+		if err != nil {
+			logger.Warn("Failed to create cron service", zap.Error(err))
+		}
+		if cronService != nil {
+			if err := cronService.Start(agentCtx); err != nil {
+				logger.Warn("Failed to start cron service", zap.Error(err))
+			}
+			defer func() { _ = cronService.Stop() }()
+		}
+	}
+
+	tuiAgent, err := NewTUIAgent(messageBus, sessionMgr, provider, contextBuilder, workspace, maxIterations, skillsLoader, cronService)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create TUI agent: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Start agent (starts event dispatcher)
-	agentCtx, agentCancel := context.WithCancel(context.Background())
 	if err := tuiAgent.Start(agentCtx); err != nil {
 		logger.Error("Failed to start agent", zap.Error(err))
 	}
