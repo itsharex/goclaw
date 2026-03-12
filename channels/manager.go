@@ -726,6 +726,65 @@ func (m *Manager) SetupFromConfig(cfg *config.Config) error {
 		}
 	}
 
+	// Slack 通道
+	if cfg.Channels.Slack.Enabled {
+		if len(cfg.Channels.Slack.Accounts) > 0 {
+			// 多账号配置
+			for accountID, accountCfg := range cfg.Channels.Slack.Accounts {
+				if accountCfg.Enabled && accountCfg.Token != "" {
+					slCfg := SlackConfig{
+						BaseChannelConfig: BaseChannelConfig{
+							Enabled:    accountCfg.Enabled,
+							AccountID:  accountID,
+							Name:       accountCfg.Name,
+							AllowedIDs: accountCfg.AllowedIDs,
+						},
+						Token:         accountCfg.Token,
+						SigningSecret: accountCfg.AppSecret, // Reuse AppSecret field for SigningSecret
+					}
+
+					channel, err := NewSlackChannel(slCfg, m.bus)
+					if err != nil {
+						logger.Error("Failed to create Slack channel",
+							zap.String("account_id", accountID),
+							zap.Error(err))
+					} else {
+						channelName := buildChannelName("slack", accountID)
+						if err := m.RegisterWithName(channel, channelName); err != nil {
+							logger.Error("Failed to register Slack channel",
+								zap.String("account_id", accountID),
+								zap.Error(err))
+						} else {
+							logger.Info("Slack channel registered",
+								zap.String("account_id", accountID),
+								zap.String("name", channelName))
+						}
+					}
+				}
+			}
+		} else if cfg.Channels.Slack.Token != "" {
+			// 单账号配置（向后兼容）
+			slCfg := SlackConfig{
+				BaseChannelConfig: BaseChannelConfig{
+					Enabled:    cfg.Channels.Slack.Enabled,
+					AccountID:  "default",
+					AllowedIDs: cfg.Channels.Slack.AllowedIDs,
+				},
+				Token:         cfg.Channels.Slack.Token,
+				SigningSecret: cfg.Channels.Slack.SigningSecret,
+			}
+
+			channel, err := NewSlackChannel(slCfg, m.bus)
+			if err != nil {
+				logger.Error("Failed to create Slack channel", zap.Error(err))
+			} else {
+				if err := m.Register(channel); err != nil {
+					logger.Error("Failed to register Slack channel", zap.Error(err))
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

@@ -105,15 +105,16 @@ type ChannelsConfig struct {
 	WeWorkWsBot WeWorkWsBotChannelConfig `mapstructure:"weworkwsbot" json:"weworkwsbot"`
 	Infoflow    InfoflowChannelConfig    `mapstructure:"infoflow" json:"infoflow"`
 	Gotify      GotifyChannelConfig      `mapstructure:"gotify" json:"gotify"`
+	Slack       SlackChannelConfig       `mapstructure:"slack" json:"slack"`
 }
 
 // ChannelAccountConfig 通道账号配置（支持多账号）
 type ChannelAccountConfig struct {
 	Enabled           bool     `mapstructure:"enabled" json:"enabled"`
 	Name              string   `mapstructure:"name" json:"name"`                             // 账号显示名称
-	Token             string   `mapstructure:"token" json:"token"`                           // Telegram token
+	Token             string   `mapstructure:"token" json:"token"`                           // Telegram token / Slack bot token
 	AppID             string   `mapstructure:"app_id" json:"app_id"`                         // QQ/Feishu/WeWork app_id
-	AppSecret         string   `mapstructure:"app_secret" json:"app_secret"`                 // QQ/Feishu app_secret
+	AppSecret         string   `mapstructure:"app_secret" json:"app_secret"`                 // QQ/Feishu app_secret / Slack signing secret
 	CorpID            string   `mapstructure:"corp_id" json:"corp_id"`                       // 企业微信 corp_id
 	AgentID           string   `mapstructure:"agent_id" json:"agent_id"`                     // 企业微信 agent_id
 	ClientID          string   `mapstructure:"client_id" json:"client_id"`                   // 钉钉 client_id
@@ -240,6 +241,16 @@ type GotifyChannelConfig struct {
 	AppToken   string   `mapstructure:"app_token" json:"app_token"`
 	Priority   int      `mapstructure:"priority" json:"priority"` // 消息优先级 1-10
 	AllowedIDs []string `mapstructure:"allowed_ids" json:"allowed_ids"`
+	// 多账号配置（新格式）
+	Accounts map[string]ChannelAccountConfig `mapstructure:"accounts" json:"accounts"`
+}
+
+// SlackChannelConfig Slack 通道配置
+type SlackChannelConfig struct {
+	Enabled       bool     `mapstructure:"enabled" json:"enabled"`
+	Token         string   `mapstructure:"token" json:"token"`                       // Bot Token (xoxb-...)
+	SigningSecret string   `mapstructure:"signing_secret" json:"signing_secret"`     // Signing Secret for verification
+	AllowedIDs    []string `mapstructure:"allowed_ids" json:"allowed_ids"`
 	// 多账号配置（新格式）
 	Accounts map[string]ChannelAccountConfig `mapstructure:"accounts" json:"accounts"`
 }

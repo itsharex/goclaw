@@ -83,6 +83,21 @@
           "allowed_ids": []
         }
       }
+    },
+    "slack": {
+      "enabled": false,
+      "token": "",
+      "signing_secret": "",
+      "allowed_ids": [],
+      "accounts": {
+        "bot1": {
+          "enabled": false,
+          "name": "Slack Bot 1",
+          "token": "",
+          "app_secret": "",
+          "allowed_ids": []
+        }
+      }
     }
   },
   "providers": {
