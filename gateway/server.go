@@ -183,6 +183,10 @@ func (s *Server) startHTTPServer(ctx context.Context) error {
 	// 通用 webhook 端点
 	mux.HandleFunc("/webhook/", s.handleGenericWebhook)
 
+	// UI 静态文件服务
+	mux.Handle("/ui/", UIStaticHandler())
+	mux.Handle("/assets/", UIStaticHandler())
+
 	// 创建 HTTP 服务器
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.config.Gateway.Host, s.config.Gateway.Port),
