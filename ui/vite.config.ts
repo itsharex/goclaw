@@ -1,0 +1,33 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/rpc': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/api/channels': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:28789',
+        ws: true,
+      },
+    },
+  },
+});
