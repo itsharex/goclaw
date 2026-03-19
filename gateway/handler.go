@@ -22,19 +22,17 @@ type Handler struct {
 	sessionMgr *session.Manager
 	channelMgr *channels.Manager
 	cronSvc    *cron.Service
-	acpMgr     interface{} // ACP manager - will be set if ACP is enabled
 	cfg        *config.Config
 }
 
 // NewHandler 创建处理器
-func NewHandler(messageBus *bus.MessageBus, sessionMgr *session.Manager, channelMgr *channels.Manager, cronSvc *cron.Service, acpMgr interface{}, cfg *config.Config) *Handler {
+func NewHandler(messageBus *bus.MessageBus, sessionMgr *session.Manager, channelMgr *channels.Manager, cronSvc *cron.Service, cfg *config.Config) *Handler {
 	h := &Handler{
 		registry:   NewMethodRegistry(),
 		bus:        messageBus,
 		sessionMgr: sessionMgr,
 		channelMgr: channelMgr,
 		cronSvc:    cronSvc,
-		acpMgr:     acpMgr,
 		cfg:        cfg,
 	}
 
@@ -52,9 +50,6 @@ func NewHandler(messageBus *bus.MessageBus, sessionMgr *session.Manager, channel
 
 	// 注册 Cron 方法
 	h.registerCronMethods()
-
-	// 注册 ACP 方法
-	h.registerAcpMethods()
 
 	return h
 }

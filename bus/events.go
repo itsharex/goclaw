@@ -54,3 +54,27 @@ type SystemMessage struct {
 func (m *InboundMessage) IsSystemMessage() bool {
 	return m.Channel == "system"
 }
+
+// ChatEvent 聊天事件（用于流式响应）
+type ChatEvent struct {
+	ID        string      `json:"id"`
+	Channel   string      `json:"channel"`
+	ChatID    string      `json:"chat_id"`
+	RunID     string      `json:"run_id"`
+	Seq       int         `json:"seq"`
+	State     string      `json:"state"`     // "delta", "thinking", "tool", "final", "error"
+	Content   string      `json:"content"`   // 增量内容
+	Message   string      `json:"message"`   // 完整消息（final 时）
+	Error     string      `json:"error"`     // 错误信息
+	Timestamp time.Time   `json:"timestamp"`
+	Metadata  interface{} `json:"metadata,omitempty"`
+}
+
+// ChatEvent states
+const (
+	ChatEventStateDelta    = "delta"    // 增量文本
+	ChatEventStateThinking = "thinking" // 思考过程
+	ChatEventStateTool     = "tool"     // 工具调用
+	ChatEventStateFinal    = "final"    // 最终完成
+	ChatEventStateError    = "error"    // 错误
+)

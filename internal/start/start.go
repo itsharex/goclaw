@@ -6,9 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/smallnest/goclaw/acp"
 	"github.com/smallnest/goclaw/agent"
 	"github.com/smallnest/goclaw/agent/tools"
 	"github.com/smallnest/goclaw/bus"
@@ -192,9 +190,6 @@ func StartAgent(cfg *Config) error {
 	// 注册 Cron 工具
 	// 注意：cronTool 将在创建 cronService 后注册
 
-	// 注意: ACP工具(spawn_acp)由agent.Manager内部直接使用
-	// 不需要通过toolRegistry注册，因为它是agent.Tool类型而不是tools.Tool类型
-
 	// 创建 LLM 提供商
 	provider, err := providers.NewProvider(configFile)
 	if err != nil {
@@ -242,47 +237,8 @@ func StartAgent(cfg *Config) error {
 		logger.Info("Cron tools registration completed")
 	}
 
-	// 创建 ACP 管理器（如果启用）
-	var acpMgr *acp.Manager
-	if configFile.ACP.Enabled {
-		// Use the global ACP manager singleton
-		acpMgr = acp.GetOrCreateGlobalManager(configFile)
-		logger.Info("ACP manager created")
-		toolRegistry.RegisterAgentTool(agent.NewSpawnAcpTool(configFile, acpMgr))
-
-		// 创建 thread binding service 并设置到 channel manager
-		threadBindingService := channels.NewThreadBindingService(configFile, sessionMgr)
-		channelMgr.SetThreadBindingService(threadBindingService)
-
-		// 创建 ACP router 并设置
-		acpRouter := acp.NewAcpSessionRouter(acpMgr)
-		acpRouter.SetThreadBindingService(threadBindingService)
-		channelMgr.SetAcpRouter(acpRouter)
-
-		// 将 thread binding service 也设置到 ACP manager (用于spawn时使用)
-		// 通过一个全局的方式，让spawn能访问到这个service
-		acp.SetGlobalThreadBindingService(threadBindingService)
-
-		// Periodically cleanup expired thread bindings.
-		go func() {
-			ticker := time.NewTicker(time.Minute)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					expired := threadBindingService.CleanupExpired()
-					if expired > 0 {
-						logger.Info("Cleaned up expired ACP thread bindings", zap.Int("count", expired))
-					}
-				}
-			}
-		}()
-	}
-
 	// 创建网关服务器
-	gatewayServer := gateway.NewServer(configFile, messageBus, channelMgr, sessionMgr, cronService, acpMgr)
+	gatewayServer := gateway.NewServer(configFile, messageBus, channelMgr, sessionMgr, cronService)
 	if err := gatewayServer.Start(ctx); err != nil {
 		logger.Warn("Failed to start gateway server", zap.Error(err))
 	}
@@ -298,7 +254,6 @@ func StartAgent(cfg *Config) error {
 		ContextBuilder: contextBuilder,
 		SkillsLoader:   skillsLoader,
 		ChannelMgr:     channelMgr,
-		AcpManager:     acpMgr,
 	})
 
 	// 从配置设置 Agent 和绑定

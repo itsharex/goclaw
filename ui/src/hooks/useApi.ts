@@ -93,14 +93,6 @@ export const useCronStatus = () => {
 
 export const useCronList = () => useApi(rpc.cronList);
 
-export const useAcpList = () => {
-  const api = useApi(() => rpc.acpList());
-  useEffect(() => {
-    api.execute();
-  }, []);
-  return api;
-};
-
 export const useLogs = () => useApi(() => rpc.logsGet());
 
 export default useApi;

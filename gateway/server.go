@@ -46,7 +46,6 @@ type Server struct {
 	connectionsMu sync.RWMutex
 	enableAuth    bool
 	authToken     string
-	acpMgr        interface{} // ACP manager - will be set if ACP is enabled
 }
 
 // WebSocketConfig WebSocket 配置
@@ -68,7 +67,7 @@ type WebSocketConfig struct {
 }
 
 // NewServer 创建网关服务器
-func NewServer(cfg *config.Config, messageBus *bus.MessageBus, channelMgr *channels.Manager, sessionMgr *session.Manager, cronSvc *cron.Service, acpMgr interface{}) *Server {
+func NewServer(cfg *config.Config, messageBus *bus.MessageBus, channelMgr *channels.Manager, sessionMgr *session.Manager, cronSvc *cron.Service) *Server {
 	// 从配置文件获取 WebSocket 设置，如果未配置则使用默认值
 	wsPort := cfg.Gateway.WebSocket.Port
 	if wsPort == 0 {
@@ -116,9 +115,8 @@ func NewServer(cfg *config.Config, messageBus *bus.MessageBus, channelMgr *chann
 		bus:         messageBus,
 		channelMgr:  channelMgr,
 		sessionMgr:  sessionMgr,
-		handler:     NewHandler(messageBus, sessionMgr, channelMgr, cronSvc, acpMgr, cfg),
+		handler:     NewHandler(messageBus, sessionMgr, channelMgr, cronSvc, cfg),
 		connections: make(map[string]*Connection),
-		acpMgr:      acpMgr,
 	}
 }
 
@@ -153,6 +151,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// 启动出站消息广播（使用新的订阅机制）
 	go s.broadcastOutbound(ctx)
+
+	// 启动聊天事件广播
+	go s.broadcastChatEvents(ctx)
 
 	// 监听上下文取消
 	go func() {
@@ -224,11 +225,11 @@ func (s *Server) startWebSocketServer(ctx context.Context) error {
 	mux.HandleFunc("/api/channels", s.handleChannelsAPI)
 
 	// 创建 WebSocket 服务器
+	// 注意：不设置 ReadTimeout 和 WriteTimeout，因为 WebSocket 连接需要长连接
+	// 心跳机制由 WebSocket 自己管理
 	s.wsServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", s.wsConfig.Host, s.wsConfig.Port),
-		Handler:      mux,
-		ReadTimeout:  s.wsConfig.ReadTimeout,
-		WriteTimeout: s.wsConfig.WriteTimeout,
+		Addr:    fmt.Sprintf("%s:%d", s.wsConfig.Host, s.wsConfig.Port),
+		Handler: mux,
 	}
 
 	// 启动服务器
@@ -441,7 +442,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 添加到连接管理
 	s.addConnection(connection)
 
-	logger.Debug("WebSocket connection established",
+	logger.Info("WebSocket connection established",
 		zap.String("session_id", sessionID),
 		zap.String("remote_addr", r.RemoteAddr),
 	)
@@ -455,13 +456,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			"version":    ProtocolVersion,
 		},
 	}
-	_ = connection.SendJSON(welcome)
+	if err := connection.SendJSON(welcome); err != nil {
+		logger.Error("Failed to send welcome message", zap.Error(err))
+	}
+
+	logger.Debug("Welcome message sent, starting heartbeat and message handler",
+		zap.String("session_id", sessionID))
 
 	// 启动心跳
 	go connection.heartbeat()
 
-	// 处理消息
-	go s.handleWebSocketMessages(connection)
+	// 处理消息 (阻塞直到连接关闭)
+	s.handleWebSocketMessages(connection)
+
+	logger.Debug("handleWebSocketMessages returned, connection handling complete",
+		zap.String("session_id", sessionID))
 }
 
 // authenticateWebSocket 验证 WebSocket 连接
@@ -492,7 +501,7 @@ func (s *Server) handleWebSocketMessages(conn *Connection) {
 	defer func() {
 		conn.Close()
 		s.removeConnection(conn.ID)
-		logger.Debug("WebSocket connection closed",
+		logger.Info("WebSocket connection closed",
 			zap.String("session_id", conn.ID),
 		)
 	}()
@@ -500,13 +509,24 @@ func (s *Server) handleWebSocketMessages(conn *Connection) {
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				logger.Error("WebSocket error",
+			// 检查是否是正常关闭
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				logger.Info("WebSocket closed by client",
+					zap.String("session_id", conn.ID),
+					zap.Error(err))
+			} else {
+				logger.Info("WebSocket read error, closing connection",
 					zap.String("session_id", conn.ID),
 					zap.Error(err))
 			}
 			break
 		}
+
+		logger.Debug("WebSocket message received",
+			zap.String("session_id", conn.ID),
+			zap.Int("message_type", messageType),
+			zap.Int("data_len", len(data)),
+		)
 
 		// 只处理文本消息
 		if messageType != websocket.TextMessage {
@@ -637,6 +657,97 @@ func (s *Server) broadcastOutbound(ctx context.Context) {
 	}
 }
 
+// broadcastChatEvents 广播聊天事件到 WebSocket 连接
+func (s *Server) broadcastChatEvents(ctx context.Context) {
+	logger.Debug("Starting WebSocket chat event broadcaster")
+
+	// 订阅聊天事件
+	subscription := s.bus.SubscribeChatEvent()
+	defer subscription.Unsubscribe()
+
+	logger.Debug("WebSocket chat event broadcaster subscribed",
+		zap.String("subscription_id", subscription.ID))
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Debug("WebSocket chat event broadcaster stopped")
+			return
+		case event, ok := <-subscription.Channel:
+			if !ok {
+				logger.Debug("Chat event channel closed, exiting broadcaster")
+				return
+			}
+			if event == nil {
+				continue
+			}
+
+			logger.Debug("Broadcasting chat event",
+				zap.String("channel", event.Channel),
+				zap.String("chat_id", event.ChatID),
+				zap.String("state", event.State),
+				zap.Int("seq", event.Seq))
+
+			// 如果是 gateway channel 的消息，定向发送给特定 session
+			if event.Channel == "gateway" {
+				s.connectionsMu.RLock()
+				for _, conn := range s.connections {
+					if conn.ID == event.ChatID {
+						// 创建事件通知
+						notif, err := s.handler.BroadcastNotification("chat.event", map[string]interface{}{
+							"run_id":    event.RunID,
+							"seq":       event.Seq,
+							"state":     event.State,
+							"content":   event.Content,
+							"timestamp": event.Timestamp,
+						})
+						if err != nil {
+							logger.Error("Failed to create chat event notification", zap.Error(err))
+							continue
+						}
+
+						// 发送通知
+						if err := conn.SendMessage(websocket.TextMessage, notif); err != nil {
+							logger.Error("Failed to send chat event notification",
+								zap.String("session_id", conn.ID),
+								zap.Error(err))
+						}
+					}
+				}
+				s.connectionsMu.RUnlock()
+				continue
+			}
+
+			// 其他 channel 的事件，广播到所有连接
+			s.connectionsMu.RLock()
+			for _, conn := range s.connections {
+				// 创建事件通知
+				notif, err := s.handler.BroadcastNotification("chat.event", map[string]interface{}{
+					"channel":   event.Channel,
+					"chat_id":   event.ChatID,
+					"run_id":    event.RunID,
+					"seq":       event.Seq,
+					"state":     event.State,
+					"content":   event.Content,
+					"timestamp": event.Timestamp,
+				})
+				if err != nil {
+					logger.Error("Failed to create chat event notification", zap.Error(err))
+					continue
+				}
+
+				// 发送通知
+				if err := conn.SendMessage(websocket.TextMessage, notif); err != nil {
+					logger.Error("Failed to broadcast chat event notification",
+						zap.String("session_id", conn.ID),
+						zap.Error(err))
+				}
+			}
+			s.connectionsMu.RUnlock()
+		}
+	}
+}
+
 // Connection WebSocket 连接
 type Connection struct {
 	*websocket.Conn
@@ -676,21 +787,16 @@ func (c *Connection) SendMessage(messageType int, data []byte) error {
 
 // heartbeat 心跳
 func (c *Connection) heartbeat() {
+	// 设置 pong 处理器，当收到 pong 响应时重置读取截止时间
+	c.SetPongHandler(func(string) error {
+		return nil
+	})
+
 	ticker := time.NewTicker(c.pingInterval)
 	defer ticker.Stop()
 
-	c.SetPongHandler(func(string) error {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.SetReadDeadline(time.Now().Add(c.pongTimeout))
-	})
-
 	for range ticker.C {
 		c.mu.Lock()
-		if err := c.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-			c.mu.Unlock()
-			return
-		}
 		if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
 			c.mu.Unlock()
 			return

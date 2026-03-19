@@ -25,3 +25,75 @@ body {
   width: 100%;
   height: 100vh;
 }
+
+/* Markdown 样式覆盖 - 用于聊天气泡 */
+.prose {
+  color: inherit;
+}
+
+.prose p {
+  margin: 0.5em 0;
+}
+
+.prose p:first-child {
+  margin-top: 0;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+.prose ul, .prose ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin: 0.25em 0;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  margin: 0.5em 0;
+  font-weight: 600;
+}
+
+.prose h1 { font-size: 1.25em; }
+.prose h2 { font-size: 1.15em; }
+.prose h3 { font-size: 1.1em; }
+
+.prose code {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.prose pre {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 0.5em;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+.prose blockquote {
+  border-left: 3px solid rgba(0, 0, 0, 0.2);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: inherit;
+  opacity: 0.9;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose a {
+  color: #3b82f6;
+  text-decoration: underline;
+}

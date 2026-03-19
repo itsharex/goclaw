@@ -14,8 +14,11 @@ import (
 type MessageBus struct {
 	inbound       chan *InboundMessage
 	outbound      chan *OutboundMessage
+	chatEvents    chan *ChatEvent
 	outSubs       map[string]chan *OutboundMessage
+	chatSubs      map[string]chan *ChatEvent
 	outSubsMu     sync.RWMutex
+	chatSubsMu    sync.RWMutex
 	mu            sync.RWMutex
 	closed        bool
 	fanoutStopped bool
@@ -24,10 +27,12 @@ type MessageBus struct {
 // NewMessageBus 创建消息总线
 func NewMessageBus(bufferSize int) *MessageBus {
 	b := &MessageBus{
-		inbound:  make(chan *InboundMessage, bufferSize),
-		outbound: make(chan *OutboundMessage, bufferSize),
-		outSubs:  make(map[string]chan *OutboundMessage),
-		closed:   false,
+		inbound:    make(chan *InboundMessage, bufferSize),
+		outbound:   make(chan *OutboundMessage, bufferSize),
+		chatEvents: make(chan *ChatEvent, bufferSize),
+		outSubs:    make(map[string]chan *OutboundMessage),
+		chatSubs:   make(map[string]chan *ChatEvent),
+		closed:     false,
 	}
 	// 启动广播 goroutine
 	go b.fanoutMessages()
@@ -165,8 +170,19 @@ func (b *MessageBus) Close() error {
 	}
 	b.outSubsMu.Unlock()
 
+	// 关闭聊天事件订阅者的 channel
+	b.chatSubsMu.Lock()
+	for _, ch := range b.chatSubs {
+		close(ch)
+	}
+	for k := range b.chatSubs {
+		delete(b.chatSubs, k)
+	}
+	b.chatSubsMu.Unlock()
+
 	close(b.inbound)
 	close(b.outbound)
+	close(b.chatEvents)
 
 	return nil
 }
@@ -309,4 +325,72 @@ type BusError struct {
 
 func (e *BusError) Error() string {
 	return e.Message
+}
+
+// PublishChatEvent 发布聊天事件
+func (b *MessageBus) PublishChatEvent(ctx context.Context, event *ChatEvent) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.closed {
+		return ErrBusClosed
+	}
+
+	// 设置默认值
+	if event.ID == "" {
+		event.ID = uuid.New().String()
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+
+	select {
+	case b.chatEvents <- event:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// ChatEventSubscription 聊天事件订阅
+type ChatEventSubscription struct {
+	ID      string
+	Channel <-chan *ChatEvent
+	bus     *MessageBus
+}
+
+// Unsubscribe 取消订阅
+func (s *ChatEventSubscription) Unsubscribe() {
+	if s == nil || s.bus == nil {
+		return
+	}
+	s.bus.UnsubscribeChatEvent(s.ID)
+}
+
+// SubscribeChatEvent 订阅聊天事件
+func (b *MessageBus) SubscribeChatEvent() *ChatEventSubscription {
+	b.chatSubsMu.Lock()
+	defer b.chatSubsMu.Unlock()
+
+	subID := uuid.New().String()
+	ch := make(chan *ChatEvent, 100)
+	b.chatSubs[subID] = ch
+
+	return &ChatEventSubscription{
+		ID:      subID,
+		Channel: ch,
+		bus:     b,
+	}
+}
+
+// UnsubscribeChatEvent 取消订阅聊天事件
+func (b *MessageBus) UnsubscribeChatEvent(subID string) {
+	b.chatSubsMu.Lock()
+	defer b.chatSubsMu.Unlock()
+
+	ch, ok := b.chatSubs[subID]
+	if ok {
+		delete(b.chatSubs, subID)
+		close(ch)
+	}
 }

@@ -12,24 +12,57 @@ class WebSocketService {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private status: ConnectionStatus = 'disconnected';
+  private isConnecting = false;
+  private shouldReconnect = true;
 
-  constructor(url: string = `ws://${window.location.host}/ws`) {
-    this.url = url;
+  constructor(url: string = '') {
+    // 如果没有指定URL，根据环境自动选择
+    if (url === '') {
+      // 在开发环境中，直接连接到WebSocket服务器（绕过Vite代理）
+      // 在生产环境中，使用相对路径
+      console.log('[WebSocket] import.meta.env.DEV:', import.meta.env.DEV);
+      if (import.meta.env.DEV) {
+        this.url = 'ws://localhost:28789/ws';
+        console.log('[WebSocket] Using direct connection to WebSocket server');
+      } else {
+        this.url = `ws://${window.location.host}/ws`;
+        console.log('[WebSocket] Using relative path connection');
+      }
+    } else {
+      this.url = url;
+    }
+    console.log('WebSocket URL:', this.url);
   }
 
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // 如果已经连接或正在连接，不重复连接
+    if (this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
       return;
     }
 
+    // 关闭旧的 WebSocket 连接（如果存在）
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close();
+      }
+      this.ws = null;
+    }
+
+    this.isConnecting = true;
+    this.shouldReconnect = true;
     this.setStatus('connecting');
 
     try {
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected, readyState:', this.ws?.readyState);
         this.reconnectAttempts = 0;
+        this.isConnecting = false;
         this.setStatus('connected');
       };
 
@@ -42,34 +75,42 @@ class WebSocketService {
         }
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        console.log('WebSocket disconnected:', event.code, event.reason);
+        this.isConnecting = false;
         this.setStatus('disconnected');
-        this.attemptReconnect();
+        if (this.shouldReconnect) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        this.setStatus('error');
+        this.isConnecting = false;
       };
     } catch (error) {
       console.error('Failed to create WebSocket:', error);
+      this.isConnecting = false;
       this.setStatus('error');
-      this.attemptReconnect();
+      if (this.shouldReconnect) {
+        this.attemptReconnect();
+      }
     }
   }
 
   disconnect(): void {
+    this.shouldReconnect = false;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+    this.isConnecting = false;
     this.setStatus('disconnected');
   }
 
   send(method: string, params?: Record<string, unknown>, id?: string): void {
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.error('WebSocket is not connected');
+      console.error('WebSocket is not connected, current state:', this.ws?.readyState);
       return;
     }
 
@@ -84,8 +125,13 @@ class WebSocketService {
   }
 
   private attemptReconnect(): void {
+    if (!this.shouldReconnect) {
+      return;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.log('Max reconnect attempts reached');
+      this.setStatus('error');
       return;
     }
 
@@ -95,11 +141,16 @@ class WebSocketService {
     console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     setTimeout(() => {
-      this.connect();
+      if (this.shouldReconnect) {
+        this.connect();
+      }
     }, delay);
   }
 
   private setStatus(status: ConnectionStatus): void {
+    if (this.status === status) {
+      return;
+    }
     this.status = status;
     this.statusHandlers.forEach((handler) => handler(status));
   }
@@ -117,6 +168,7 @@ class WebSocketService {
 
   onStatusChange(handler: StatusHandler): () => void {
     this.statusHandlers.add(handler);
+    // 立即通知当前状态
     handler(this.status);
     return () => {
       this.statusHandlers.delete(handler);

@@ -42,3 +42,4 @@ google_search_results.json
 .history
 
 node_modules/
+.claude/

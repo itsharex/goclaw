@@ -10,8 +10,6 @@ import {
   CronListResponse,
   CronTask,
   CronRunsResponse,
-  AcpListResponse,
-  AcpSession,
   LogsResponse,
 } from '../types';
 
@@ -121,27 +119,6 @@ class RPCService {
 
   async cronRuns(taskId?: string): Promise<CronRunsResponse> {
     return this.call<CronRunsResponse>('cron.runs', taskId ? { id: taskId } : {});
-  }
-
-  // ACP
-  async acpSpawn(policy: string, runtime?: string, prompt?: string): Promise<{ session_id: string }> {
-    return this.call('acp_spawn', { policy, runtime, prompt });
-  }
-
-  async acpStatus(sessionId: string): Promise<AcpSession> {
-    return this.call<AcpSession>('acp_status', { session_id: sessionId });
-  }
-
-  async acpList(): Promise<AcpListResponse> {
-    return this.call<AcpListResponse>('acp_list');
-  }
-
-  async acpClose(sessionId: string): Promise<{ success: boolean }> {
-    return this.call('acp_close', { session_id: sessionId });
-  }
-
-  async acpCancel(sessionId: string): Promise<{ success: boolean }> {
-    return this.call('acp_cancel', { session_id: sessionId });
   }
 
   // Agent

@@ -108,37 +108,6 @@ export interface CronRunsResponse {
   count: number;
 }
 
-// ACP Types
-export interface AcpSession {
-  id: string;
-  policy: string;
-  runtime: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  created_at: number;
-  updated_at: number;
-  result?: string;
-}
-
-export interface AcpListResponse {
-  sessions: AcpSession[];
-  count: number;
-}
-
-export interface AcpStatusResponse {
-  session: AcpSession;
-}
-
-export interface AcpSpawnParams {
-  policy: string;
-  runtime?: string;
-  prompt?: string;
-}
-
-export interface AcpSpawnResponse {
-  session_id: string;
-  status: string;
-}
-
 // Logs
 export interface LogEntry {
   timestamp: number;

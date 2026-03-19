@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-GoClaw UI 是 [goclaw](https://github.com/kinwyb/goclaw) 项目的 Web 管理界面，采用 React + TypeScript + Tailwind CSS 构建，提供可视化的系统监控、通道管理、会话管理、定时任务、ACP 会话等功能。
+GoClaw UI 是 [goclaw](https://github.com/kinwyb/goclaw) 项目的 Web 管理界面，采用 React + TypeScript + Tailwind CSS 构建，提供可视化的系统监控、通道管理、会话管理、定时任务等功能。
 
 ## 技术栈
 
@@ -24,7 +24,6 @@ ui/
 │   │   ├── ChannelList.tsx   # 通道列表
 │   │   ├── SessionList.tsx   # 会话列表
 │   │   ├── CronManager.tsx   # 定时任务管理
-│   │   ├── AcpManager.tsx    # ACP 会话管理
 │   │   ├── ChatPanel.tsx     # 聊天面板
 │   │   ├── LogsViewer.tsx    # 日志查看器
 │   │   └── StatusIndicator.tsx # 状态指示器
@@ -56,12 +55,11 @@ ui/
 - **统计卡片**：
   - Channels：通道数量及在线数量
   - Cron Tasks：定时任务数量及运行状态
-  - ACP Sessions：ACP 会话数量及活跃数
   - WebSocket：连接状态（实时）
 
 - **系统健康状态**：显示系统状态、上次检查时间
 
-- **快速统计**：在线通道数、活跃 ACP 会话数等
+- **快速统计**：在线通道数等
 
 - **通道状态概览**：显示所有已配置通道的在线状态
 
@@ -84,21 +82,14 @@ ui/
 - 编辑、删除、立即执行定时任务
 - 查看任务执行历史记录
 
-### 5. ACP 会话管理 (ACP Sessions)
-
-- ACP（Agent Control Protocol）会话管理
-- 创建新的 ACP 会话（指定策略、运行时、提示词）
-- 查看会话状态：pending、running、completed、failed、cancelled
-- 关闭、取消会话
-
-### 6. 聊天面板 (Chat)
+### 5. 聊天面板 (Chat)
 
 - 选择通道和聊天 ID 进行即时消息发送
 - 实时消息展示（用户消息、AI 回复）
 - 发送消息到 Agent 并获取响应
 - WebSocket 实时接收 inbound/outbound 消息
 
-### 7. 日志查看器 (Logs)
+### 6. 日志查看器 (Logs)
 
 - 查看系统日志
 - 按通道筛选日志
@@ -133,8 +124,6 @@ const response = await fetch('/rpc', {
 - `cron.status` - Cron 状态
 - `cron.list` - 定时任务列表
 - `cron.add` - 添加定时任务
-- `acp_list` - ACP 会话列表
-- `acp_spawn` - 创建 ACP 会话
 - `logs.get` - 获取日志
 
 ### WebSocket

@@ -9,10 +9,10 @@ import (
 	"github.com/smallnest/goclaw/session"
 )
 
-// ThreadBindingRecord represents a thread binding between a channel thread and an ACP session.
+// ThreadBindingRecord represents a thread binding between a channel thread and a session.
 type ThreadBindingRecord struct {
 	ID               string                    // Unique binding ID
-	TargetSessionKey string                    // The ACP session key
+	TargetSessionKey string                    // The session key
 	TargetKind       string                    // "session" or "subagent"
 	Conversation     ThreadBindingConversation // Channel conversation info
 	Placement        string                    // "child" or "peer"
@@ -43,7 +43,7 @@ type ThreadBindingMetadata struct {
 type ThreadBindingPolicy struct {
 	Channel       string // Channel type
 	AccountID     string // Account identifier
-	Kind          string // Binding kind ("acp" or "subagent")
+	Kind          string // Binding kind ("session" or "subagent")
 	Enabled       bool   // Whether thread bindings are enabled
 	SpawnEnabled  bool   // Whether spawning new bindings is allowed
 	IdleTimeoutMs int    // Idle timeout in milliseconds
@@ -55,13 +55,6 @@ type ThreadBindingCapabilities struct {
 	AdapterAvailable bool     // Whether the adapter is available
 	BindSupported    bool     // Whether thread binding is supported
 	Placements       []string // Supported placement types
-}
-
-// PreparedAcpThreadBinding represents a prepared thread binding for ACP spawn.
-type PreparedAcpThreadBinding struct {
-	Channel        string
-	AccountID      string
-	ConversationID string
 }
 
 // ThreadBindingService manages thread bindings.
@@ -306,23 +299,6 @@ func (s *ThreadBindingService) resolvePolicy(channel, accountID, kind string) Th
 		MaxAgeMs:      60 * 60 * 1000, // 1 hour
 	}
 
-	if s.cfg == nil {
-		return policy
-	}
-
-	// Check channel-specific configuration
-	bindingKey := fmt.Sprintf("%s:%s", channel, accountID)
-	if channelConfig, exists := s.cfg.ACP.ThreadBindings[bindingKey]; exists {
-		policy.Enabled = channelConfig.Enabled
-		policy.SpawnEnabled = channelConfig.SpawnEnabled
-		if channelConfig.IdleTimeoutMs > 0 {
-			policy.IdleTimeoutMs = channelConfig.IdleTimeoutMs
-		}
-		if channelConfig.MaxAgeMs > 0 {
-			policy.MaxAgeMs = channelConfig.MaxAgeMs
-		}
-	}
-
 	return policy
 }
 
@@ -343,12 +319,12 @@ func ResolveThreadBindingThreadName(agentID, label string) string {
 	if label != "" {
 		return fmt.Sprintf("%s (%s)", label, agentID)
 	}
-	return fmt.Sprintf("ACP: %s", agentID)
+	return fmt.Sprintf("Session: %s", agentID)
 }
 
 // ResolveThreadBindingIntroText generates intro text for a thread binding.
 func ResolveThreadBindingIntroText(agentID, label string, idleTimeoutMs, maxAgeMs int, sessionCwd string, sessionDetails []string) string {
-	intro := "📌 **Thread-bound ACP session created**\n\n"
+	intro := "📌 **Thread-bound session created**\n\n"
 	intro += fmt.Sprintf("**Agent:** %s\n", agentID)
 	if label != "" {
 		intro += fmt.Sprintf("**Label:** %s\n", label)
@@ -383,29 +359,11 @@ func formatDuration(ms int) string {
 
 // ResolveThreadBindingIdleTimeoutMsForChannel returns the idle timeout for a channel.
 func ResolveThreadBindingIdleTimeoutMsForChannel(cfg *config.Config, channel, accountID string) int {
-	if cfg == nil {
-		return 5 * 60 * 1000 // Default 5 minutes
-	}
-
-	bindingKey := fmt.Sprintf("%s:%s", channel, accountID)
-	if channelConfig, exists := cfg.ACP.ThreadBindings[bindingKey]; exists && channelConfig.IdleTimeoutMs > 0 {
-		return channelConfig.IdleTimeoutMs
-	}
-
 	return 5 * 60 * 1000 // Default 5 minutes
 }
 
 // ResolveThreadBindingMaxAgeMsForChannel returns the max age for a channel.
 func ResolveThreadBindingMaxAgeMsForChannel(cfg *config.Config, channel, accountID string) int {
-	if cfg == nil {
-		return 60 * 60 * 1000 // Default 1 hour
-	}
-
-	bindingKey := fmt.Sprintf("%s:%s", channel, accountID)
-	if channelConfig, exists := cfg.ACP.ThreadBindings[bindingKey]; exists && channelConfig.MaxAgeMs > 0 {
-		return channelConfig.MaxAgeMs
-	}
-
 	return 60 * 60 * 1000 // Default 1 hour
 }
 
@@ -429,22 +387,6 @@ func ResolveThreadBindingSpawnPolicy(cfg *config.Config, channel, accountID, kin
 		SpawnEnabled:  true,
 		IdleTimeoutMs: 5 * 60 * 1000,
 		MaxAgeMs:      60 * 60 * 1000,
-	}
-
-	if cfg == nil {
-		return policy
-	}
-
-	bindingKey := fmt.Sprintf("%s:%s", channel, accountID)
-	if channelConfig, exists := cfg.ACP.ThreadBindings[bindingKey]; exists {
-		policy.Enabled = channelConfig.Enabled
-		policy.SpawnEnabled = channelConfig.SpawnEnabled
-		if channelConfig.IdleTimeoutMs > 0 {
-			policy.IdleTimeoutMs = channelConfig.IdleTimeoutMs
-		}
-		if channelConfig.MaxAgeMs > 0 {
-			policy.MaxAgeMs = channelConfig.MaxAgeMs
-		}
 	}
 
 	return policy

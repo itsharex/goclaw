@@ -1,4 +1,4 @@
-type Page = 'dashboard' | 'channels' | 'sessions' | 'cron' | 'acp' | 'chat' | 'logs';
+type Page = 'dashboard' | 'channels' | 'sessions' | 'cron' | 'chat' | 'logs';
 
 interface SidebarProps {
   currentPage: Page;
@@ -12,7 +12,6 @@ const menuItems: { id: Page; label: string; icon: string }[] = [
   { id: 'channels', label: 'Channels', icon: '📡' },
   { id: 'sessions', label: 'Sessions', icon: '💬' },
   { id: 'cron', label: 'Cron Jobs', icon: '⏰' },
-  { id: 'acp', label: 'ACP Sessions', icon: '🔧' },
   { id: 'chat', label: 'Chat', icon: '🗨️' },
   { id: 'logs', label: 'Logs', icon: '📜' },
 ];

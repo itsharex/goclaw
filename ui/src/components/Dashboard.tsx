@@ -1,4 +1,4 @@
-import { useHealth, useCronStatus, useAcpList } from '../hooks/useApi';
+import { useHealth, useCronStatus } from '../hooks/useApi';
 import { useChannels } from '../hooks/useChannels';
 import StatusIndicator from './StatusIndicator';
 import { Channel } from '../types';
@@ -7,7 +7,6 @@ const Dashboard: React.FC = () => {
   const { data: health, loading: healthLoading } = useHealth();
   const { channels, loading: channelsLoading } = useChannels();
   const { data: cronStatus } = useCronStatus();
-  const { data: acpData } = useAcpList();
 
   // 兼容 channel 数据，可能是字符串或对象
   const getChannelName = (channel: Channel | string) => {
@@ -38,13 +37,6 @@ const Dashboard: React.FC = () => {
       subValue: cronStatus?.running ? 'Running' : 'Stopped',
       icon: '⏰',
       color: 'green',
-    },
-    {
-      label: 'ACP Sessions',
-      value: acpData?.count || 0,
-      subValue: `${acpData?.sessions.filter(s => s.status === 'running').length || 0} active`,
-      icon: '🔧',
-      color: 'purple',
     },
     {
       label: 'WebSocket',
@@ -141,12 +133,6 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Cron Tasks</span>
               <span className="text-gray-900 font-medium">{cronStatus?.task_count || 0}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500">Active ACP Sessions</span>
-              <span className="text-purple-600 font-medium">
-                {acpData?.sessions.filter(s => s.status === 'running').length || 0}
-              </span>
             </div>
           </div>
         </div>

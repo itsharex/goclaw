@@ -5,11 +5,10 @@ import Dashboard from './components/Dashboard';
 import ChannelList from './components/ChannelList';
 import SessionList from './components/SessionList';
 import CronManager from './components/CronManager';
-import AcpManager from './components/AcpManager';
 import ChatPanel from './components/ChatPanel';
 import LogsViewer from './components/LogsViewer';
 
-type Page = 'dashboard' | 'channels' | 'sessions' | 'cron' | 'acp' | 'chat' | 'logs';
+type Page = 'dashboard' | 'channels' | 'sessions' | 'cron' | 'chat' | 'logs';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
@@ -25,8 +24,6 @@ function App() {
         return <SessionList />;
       case 'cron':
         return <CronManager />;
-      case 'acp':
-        return <AcpManager />;
       case 'chat':
         return <ChatPanel />;
       case 'logs':

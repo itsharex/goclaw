@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,8 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/smallnest/goclaw/acp"
-	acpruntime "github.com/smallnest/goclaw/acp/runtime"
 	"github.com/smallnest/goclaw/agent/tools"
 	"github.com/smallnest/goclaw/bus"
 	"github.com/smallnest/goclaw/channels"
@@ -39,7 +38,6 @@ type AgentManager struct {
 	skillsLoader   *SkillsLoader
 	helper         *AgentHelper
 	channelMgr     *channels.Manager
-	acpManager     *acp.Manager
 	manualCronMu   sync.Mutex
 	manualCronLast map[string]time.Time
 	// 分身支持
@@ -66,7 +64,6 @@ type NewAgentManagerConfig struct {
 	ContextBuilder *ContextBuilder // 上下文构建器
 	SkillsLoader   *SkillsLoader   // 技能加载器
 	ChannelMgr     *channels.Manager
-	AcpManager     *acp.Manager
 }
 
 // NewAgentManager 创建 Agent 管理器
@@ -91,7 +88,6 @@ func NewAgentManager(cfg *NewAgentManagerConfig) *AgentManager {
 		skillsLoader:      cfg.SkillsLoader,
 		helper:            NewAgentHelper(cfg.SessionMgr),
 		channelMgr:        cfg.ChannelMgr,
-		acpManager:        cfg.AcpManager,
 		manualCronLast:    make(map[string]time.Time),
 	}
 }
@@ -486,10 +482,6 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 		zap.String("content", msg.Content),
 	)
 
-	if handled, err := m.handleAcpThreadBindingInbound(ctx, msg); handled {
-		logger.Info("[Manager] Message handled by ACP thread binding", zap.String("message_id", msg.ID))
-		return err
-	}
 	if handled, err := m.handleDirectCronOneShot(ctx, msg); handled {
 		logger.Info("[Manager] Message handled by cron oneshot", zap.String("message_id", msg.ID))
 		return err
@@ -553,6 +545,16 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 		zap.Int("history_count", len(history)),
 		zap.Int("total_messages", len(allMessages)),
 	)
+
+	// 启动事件监听 goroutine 来转发流式事件
+	runID := uuid.New().String()
+	eventSeq := 0
+	go func() {
+		for event := range orchestrator.Subscribe() {
+			m.handleOrchestratorEvent(ctx, msg, event, runID, &eventSeq)
+		}
+	}()
+
 	finalMessages, err := orchestrator.Run(ctx, allMessages)
 	logger.Info("[Manager] Agent execution completed",
 		zap.String("message_id", msg.ID),
@@ -606,6 +608,10 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 	if len(finalMessages) > 0 {
 		lastMsg := finalMessages[len(finalMessages)-1]
 		if lastMsg.Role == RoleAssistant {
+			// 发送 final 事件
+			content := extractTextContent(lastMsg)
+			m.publishChatEvent(ctx, msg.Channel, msg.ChatID, bus.ChatEventStateFinal, content, runID, eventSeq+1)
+			// 发布到总线
 			m.publishToBus(ctx, msg.Channel, msg.ChatID, lastMsg, msg.ID)
 		}
 	}
@@ -625,11 +631,21 @@ func (m *AgentManager) handleDirectCronOneShot(ctx context.Context, msg *bus.Inb
 
 	jobID, err := m.resolveCronJobIDForOneShot(ctx, content)
 	if err != nil {
-		m.publishAcpThreadBindingError(ctx, msg, "已识别为一次性测试请求，但未找到可执行任务："+err.Error())
+		errMsg := AgentMessage{
+			Role:      RoleAssistant,
+			Content:   []ContentBlock{TextContent{Text: "已识别为一次性测试请求，但未找到可执行任务：" + err.Error()}},
+			Timestamp: time.Now().UnixMilli(),
+		}
+		m.publishToBus(ctx, msg.Channel, msg.ChatID, errMsg, msg.ID)
 		return true, nil
 	}
 	if ok, wait := m.allowManualCronRun(jobID, time.Now()); !ok {
-		m.publishAcpThreadBindingError(ctx, msg, fmt.Sprintf("任务 `%s` 刚刚手工触发过，请 %d 秒后再试。", jobID, wait))
+		errMsg := AgentMessage{
+			Role:      RoleAssistant,
+			Content:   []ContentBlock{TextContent{Text: fmt.Sprintf("任务 `%s` 刚刚手工触发过，请 %d 秒后再试。", jobID, wait)}},
+			Timestamp: time.Now().UnixMilli(),
+		}
+		m.publishToBus(ctx, msg.Channel, msg.ChatID, errMsg, msg.ID)
 		return true, nil
 	}
 
@@ -744,91 +760,6 @@ func extractEnabledCronJobIDs(listOutput string) []string {
 	return ids
 }
 
-func (m *AgentManager) resolveAcpThreadBindingSession(msg *bus.InboundMessage) string {
-	if m.channelMgr == nil || m.acpManager == nil || msg == nil {
-		return ""
-	}
-	return m.channelMgr.RouteToAcpSession(msg.Channel, msg.AccountID, msg.ChatID)
-}
-
-func (m *AgentManager) handleAcpThreadBindingInbound(ctx context.Context, msg *bus.InboundMessage) (bool, error) {
-	sessionKey := m.resolveAcpThreadBindingSession(msg)
-	if sessionKey == "" {
-		return false, nil
-	}
-
-	go m.runAcpThreadBindingTurn(ctx, sessionKey, msg)
-	return true, nil
-}
-
-func (m *AgentManager) runAcpThreadBindingTurn(ctx context.Context, sessionKey string, msg *bus.InboundMessage) {
-	requestID := msg.ID
-	if requestID == "" {
-		requestID = uuid.NewString()
-	}
-
-	result, err := m.acpManager.RunTrackedTurn(ctx, acp.RunTrackedTurnInput{
-		Cfg:        m.cfg,
-		SessionKey: sessionKey,
-		Text:       msg.Content,
-		Mode:       acpruntime.AcpPromptModePrompt,
-		RequestID:  requestID,
-	})
-	if err != nil {
-		logger.Error("Failed to run ACP turn for thread binding",
-			zap.String("session_key", sessionKey),
-			zap.String("channel", msg.Channel),
-			zap.String("account_id", msg.AccountID),
-			zap.String("chat_id", msg.ChatID),
-			zap.Error(err))
-		m.publishAcpThreadBindingError(ctx, msg, "ACP session is currently unavailable. Please retry.")
-		return
-	}
-
-	var response strings.Builder
-	for event := range result.EventChan {
-		switch e := event.(type) {
-		case *acpruntime.AcpEventTextDelta:
-			if e.Stream == "" || e.Stream == "output" {
-				response.WriteString(e.Text)
-			}
-		case *acpruntime.AcpEventError:
-			logger.Error("ACP turn failed for thread binding",
-				zap.String("session_key", sessionKey),
-				zap.String("channel", msg.Channel),
-				zap.String("account_id", msg.AccountID),
-				zap.String("chat_id", msg.ChatID),
-				zap.String("error_message", e.Message))
-			m.publishAcpThreadBindingError(ctx, msg, "ACP session failed to complete this request.")
-			return
-		}
-	}
-
-	reply := response.String()
-	if strings.TrimSpace(reply) == "" {
-		reply = "ACP task finished."
-	}
-
-	outbound := AgentMessage{
-		Role:      RoleAssistant,
-		Content:   []ContentBlock{TextContent{Text: reply}},
-		Timestamp: time.Now().UnixMilli(),
-	}
-	m.publishToBus(ctx, msg.Channel, msg.ChatID, outbound, msg.ID)
-}
-
-func (m *AgentManager) publishAcpThreadBindingError(ctx context.Context, msg *bus.InboundMessage, text string) {
-	if msg == nil || strings.TrimSpace(text) == "" {
-		return
-	}
-	outbound := AgentMessage{
-		Role:      RoleAssistant,
-		Content:   []ContentBlock{TextContent{Text: text}},
-		Timestamp: time.Now().UnixMilli(),
-	}
-	m.publishToBus(ctx, msg.Channel, msg.ChatID, outbound, msg.ID)
-}
-
 // updateSession 更新会话
 func (m *AgentManager) updateSession(sess *session.Session, messages []AgentMessage, historyLen int) {
 	// 只保存新产生的消息（不包括历史消息）
@@ -854,6 +785,67 @@ func (m *AgentManager) publishToBus(ctx context.Context, channel, chatID string,
 
 	if err := m.bus.PublishOutbound(ctx, outbound); err != nil {
 		logger.Error("Failed to publish outbound", zap.Error(err))
+	}
+}
+
+// publishChatEvent 发布聊天事件到总线
+func (m *AgentManager) publishChatEvent(ctx context.Context, channel, chatID string, state string, content string, runID string, seq int) {
+	event := &bus.ChatEvent{
+		Channel:   channel,
+		ChatID:    chatID,
+		State:     state,
+		Content:   content,
+		RunID:     runID,
+		Seq:       seq,
+		Timestamp: time.Now(),
+	}
+
+	if err := m.bus.PublishChatEvent(ctx, event); err != nil {
+		logger.Error("Failed to publish chat event", zap.Error(err))
+	}
+}
+
+// handleOrchestratorEvent 处理 orchestrator 事件
+func (m *AgentManager) handleOrchestratorEvent(ctx context.Context, msg *bus.InboundMessage, event *Event, runID string, seq *int) {
+	if event == nil {
+		return
+	}
+
+	*seq++
+
+	switch event.Type {
+	case EventStreamContent:
+		// 流式内容事件
+		m.publishChatEvent(ctx, msg.Channel, msg.ChatID, bus.ChatEventStateDelta, event.StreamContent, runID, *seq)
+	case EventStreamThinking:
+		// 思考过程事件
+		m.publishChatEvent(ctx, msg.Channel, msg.ChatID, bus.ChatEventStateThinking, event.StreamContent, runID, *seq)
+	case EventStreamFinal:
+		// 最终内容事件
+		m.publishChatEvent(ctx, msg.Channel, msg.ChatID, bus.ChatEventStateDelta, event.StreamContent, runID, *seq)
+	case EventStreamDone:
+		// 流结束
+		logger.Debug("Stream done event", zap.String("run_id", runID))
+	case EventToolExecutionStart:
+		// 工具开始事件
+		toolInfo := map[string]interface{}{
+			"tool_name": event.ToolName,
+			"tool_id":   event.ToolID,
+		}
+		toolJSON, _ := json.Marshal(toolInfo)
+		m.publishChatEvent(ctx, msg.Channel, msg.ChatID, bus.ChatEventStateTool, string(toolJSON), runID, *seq)
+	case EventToolExecutionEnd:
+		// 工具结束事件
+		toolInfo := map[string]interface{}{
+			"tool_name":   event.ToolName,
+			"tool_id":     event.ToolID,
+			"tool_result": event.ToolResult,
+		}
+		toolJSON, _ := json.Marshal(toolInfo)
+		m.publishChatEvent(ctx, msg.Channel, msg.ChatID, bus.ChatEventStateTool, string(toolJSON), runID, *seq)
+	case EventTurnEnd, EventAgentEnd:
+		// Turn/Agent 结束事件
+		logger.Debug("Agent turn end", zap.String("run_id", runID), zap.String("event_type", string(event.Type)))
 	}
 }
 
