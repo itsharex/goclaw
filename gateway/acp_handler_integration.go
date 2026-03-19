@@ -1,19 +1,22 @@
 package gateway
 
 import (
+	"reflect"
+
 	"github.com/smallnest/goclaw/acp"
 )
 
 // registerAcpMethods 注册 ACP 方法
 func (h *Handler) registerAcpMethods() {
-	// Only register ACP methods if ACP manager is available
-	if h.acpMgr == nil { // 这里的nil判断并没生效，因为interface{}==nil只有值和类型都为nil才为true，但这里有类型*acp.Manager所以不为nil
+	// Use reflection to properly check if interface is nil
+	// This handles the case where a typed nil pointer is passed as interface{}
+	if h.acpMgr == nil || reflect.ValueOf(h.acpMgr).IsNil() {
 		return
 	}
 
 	// Type assert to *acp.Manager
 	acpManager, ok := h.acpMgr.(*acp.Manager)
-	if !ok || acpManager == nil {
+	if !ok {
 		// Not a valid ACP manager, skip registration
 		return
 	}
