@@ -1,4 +1,4 @@
-.PHONY: help all build test test-race test-coverage test-verbose lint fmt fmt-check vet clean deps tidy check install-tools benchmark build-ui build-full
+.PHONY: help all build test test-race test-coverage test-verbose lint fmt fmt-check vet clean deps tidy check install-tools benchmark build-ui build-full setup-tauri build-tauri dev-tauri prepare-sidecar prepare-tauri-sidecar
 
 # Variables
 GOCMD=go
@@ -16,6 +16,7 @@ DOCKER_IMAGE=goclaw
 DOCKER_TAG=$(VERSION)
 COVERAGE_FILE=coverage.out
 COVERAGE_HTML=coverage.html
+GO_CACHE_DIR=$(CURDIR)/.gocache
 
 # Colors for terminal output
 COLOR_RESET=\033[0m
@@ -42,7 +43,8 @@ help:
 build:
 	@echo "$(COLOR_BLUE)Building $(BINARY_NAME)...$(COLOR_RESET)"
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) -ldflags="-X 'main.Version=$(VERSION)'" -o $(BUILD_DIR)/$(BINARY_NAME) .
+	@mkdir -p $(GO_CACHE_DIR)
+	GOCACHE=$(GO_CACHE_DIR) $(GOBUILD) -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'" -o $(BUILD_DIR)/$(BINARY_NAME) .
 
 ## build-ui: Build the UI frontend
 build-ui:
@@ -56,7 +58,8 @@ build-full: build-ui
 	@rm -rf gateway/ui_dist && cp -r ui/dist gateway/ui_dist
 	@echo "$(COLOR_BLUE)Building $(BINARY_NAME) with embedded UI...$(COLOR_RESET)"
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) -ldflags="-X 'main.Version=$(VERSION)'" -o $(BUILD_DIR)/$(BINARY_NAME) .
+	@mkdir -p $(GO_CACHE_DIR)
+	GOCACHE=$(GO_CACHE_DIR) $(GOBUILD) -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'" -o $(BUILD_DIR)/$(BINARY_NAME) .
 	@echo "$(COLOR_GREEN)Build complete! Binary: $(BUILD_DIR)/$(BINARY_NAME)$(COLOR_RESET)"
 
 ## test: Run all tests
@@ -285,3 +288,61 @@ release-notes:
 	@echo "$(COLOR_BLUE)Generating release notes...$(COLOR_RESET)"
 	goreleaser release --release-notes=release-notes.txt --skip=publish --skip=validate --skip=announce
 
+# Tauri Desktop App targets
+# Helper to get Rust target triple
+TAURI_TARGET=$(shell rustc -vV | grep host | cut -d' ' -f2)
+
+## setup-tauri: Install Tauri CLI and dependencies
+setup-tauri:
+	@echo "$(COLOR_BLUE)Installing Tauri CLI...$(COLOR_RESET)"
+	@which cargo > /dev/null || (echo "$(COLOR_YELLOW)Rust/Cargo not found. Install from https://rustup.rs$(COLOR_RESET)" && exit 1)
+	cargo install tauri-cli --version "^1.5" || echo "Tauri CLI already installed"
+	@echo "$(COLOR_GREEN)Tauri setup complete$(COLOR_RESET)"
+	@echo "Run 'make dev-tauri' to start development mode"
+	@echo "Run 'make build-tauri' to build the desktop app"
+
+## prepare-sidecar: Build and prepare the goclaw binary for sidecar
+prepare-sidecar: build-full
+	@echo "$(COLOR_BLUE)Preparing sidecar binary...$(COLOR_RESET)"
+	@mkdir -p src-tauri/binaries
+	@cp $(BINARY_NAME) src-tauri/binaries/goclaw-$(TAURI_TARGET)
+	@echo "$(COLOR_GREEN)Sidecar binary prepared$(COLOR_RESET)"
+
+## prepare-tauri-sidecar: Build embedded UI and sidecar binary for the current platform
+prepare-tauri-sidecar: prepare-sidecar
+	@echo "$(COLOR_GREEN)Tauri sidecar is ready$(COLOR_RESET)"
+
+## dev-tauri: Start Tauri development mode
+dev-tauri:
+	@echo "$(COLOR_BLUE)Starting Tauri development mode...$(COLOR_RESET)"
+	@which cargo > /dev/null || (echo "$(COLOR_YELLOW)Rust/Cargo not found. Install from https://rustup.rs$(COLOR_RESET)" && exit 1)
+	@$(MAKE) prepare-tauri-sidecar
+	cargo tauri dev
+
+## build-tauri: Build Tauri desktop application
+build-tauri:
+	@echo "$(COLOR_BLUE)Building Tauri desktop application...$(COLOR_RESET)"
+	@which cargo > /dev/null || (echo "$(COLOR_YELLOW)Rust/Cargo not found. Install from https://rustup.rs$(COLOR_RESET)" && exit 1)
+	@$(MAKE) build-full
+	@# Create sidecar binaries for all platforms (for release builds)
+	@mkdir -p src-tauri/binaries
+	@echo "$(COLOR_BLUE)Creating sidecar binaries...$(COLOR_RESET)"
+	@# For macOS (Intel and Apple Silicon)
+	@mkdir -p $(GO_CACHE_DIR)
+	GOCACHE=$(GO_CACHE_DIR) GOOS=darwin GOARCH=amd64 $(GOBUILD) -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'" -o src-tauri/binaries/goclaw-x86_64-apple-darwin .
+	GOCACHE=$(GO_CACHE_DIR) GOOS=darwin GOARCH=arm64 $(GOBUILD) -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'" -o src-tauri/binaries/goclaw-aarch64-apple-darwin .
+	@# For Linux
+	GOCACHE=$(GO_CACHE_DIR) GOOS=linux GOARCH=amd64 $(GOBUILD) -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'" -o src-tauri/binaries/goclaw-x86_64-unknown-linux-gnu .
+	@# For Windows
+	GOCACHE=$(GO_CACHE_DIR) GOOS=windows GOARCH=amd64 $(GOBUILD) -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'" -o src-tauri/binaries/goclaw-x86_64-pc-windows-msvc.exe .
+	cargo tauri build
+	@echo "$(COLOR_GREEN)Tauri build complete!$(COLOR_RESET)"
+	@echo "Find the application in src-tauri/target/release/bundle/"
+
+## build-tauri-current: Build Tauri app for current platform only (faster)
+build-tauri-current:
+	@echo "$(COLOR_BLUE)Building Tauri for current platform...$(COLOR_RESET)"
+	@which cargo > /dev/null || (echo "$(COLOR_YELLOW)Rust/Cargo not found. Install from https://rustup.rs$(COLOR_RESET)" && exit 1)
+	@$(MAKE) prepare-tauri-sidecar
+	cargo tauri build
+	@echo "$(COLOR_GREEN)Tauri build complete for current platform$(COLOR_RESET)"

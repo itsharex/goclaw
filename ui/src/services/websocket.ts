@@ -3,6 +3,10 @@ import { WSMessage, ConnectionStatus } from '../types';
 type MessageHandler = (message: WSMessage) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 
+const isTauriEnvironment = () =>
+  typeof window !== 'undefined' &&
+  ('__TAURI__' in window || '__TAURI_IPC__' in window || '__TAURI_INTERNALS__' in window);
+
 class WebSocketService {
   private ws: WebSocket | null = null;
   private url: string;
@@ -20,9 +24,12 @@ class WebSocketService {
     if (url === '') {
       // 在开发环境中，直接连接到WebSocket服务器（绕过Vite代理）
       // 在生产环境中，使用相对路径
+      // 在 Tauri 桌面应用中，始终连接到 localhost
       console.log('[WebSocket] import.meta.env.DEV:', import.meta.env.DEV);
-      if (import.meta.env.DEV) {
-        this.url = 'ws://localhost:28789/ws';
+      console.log('[WebSocket] isTauri:', isTauriEnvironment());
+
+      if (isTauriEnvironment() || import.meta.env.DEV) {
+        this.url = 'ws://127.0.0.1:28789/ws';
         console.log('[WebSocket] Using direct connection to WebSocket server');
       } else {
         this.url = `ws://${window.location.host}/ws`;

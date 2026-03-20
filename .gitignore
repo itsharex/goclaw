@@ -30,8 +30,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+.DS_Store
 
 dist/
+.gocache/
 
 goclaw
 !goclaw/
@@ -43,3 +45,26 @@ google_search_results.json
 
 node_modules/
 .claude/
+
+# Rust / Tauri
+# Compiled files
+*.o
+*.so
+*.rlib
+*.dll
+
+# Rust target directory
+src-tauri/target/
+
+# Rust backup files
+**/*.rs.bk
+*.pdb
+
+# Cargo lock for library projects (keep for applications)
+# src-tauri/Cargo.lock
+
+# Sidecar binaries (built during release)
+src-tauri/binaries/
+
+# Tauri Wix output
+src-tauri/WixTools/

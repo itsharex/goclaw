@@ -218,6 +218,10 @@ func (s *Server) startWebSocketServer(ctx context.Context) error {
 	// WebSocket 端点
 	mux.HandleFunc(s.wsConfig.Path, s.handleWebSocket)
 
+	// JSON-RPC 端点
+	// Dashboard UI is served from the WebSocket server port, so it must also expose /rpc.
+	mux.HandleFunc("/rpc", s.handleJSONRPC)
+
 	// 健康检查端点
 	mux.HandleFunc("/health", s.handleHealth)
 

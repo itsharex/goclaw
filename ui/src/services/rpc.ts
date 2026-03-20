@@ -13,6 +13,10 @@ import {
   LogsResponse,
 } from '../types';
 
+const isTauriEnvironment = () =>
+  typeof window !== 'undefined' &&
+  ('__TAURI__' in window || '__TAURI_IPC__' in window || '__TAURI_INTERNALS__' in window);
+
 // Generate a unique ID for each request
 const generateId = (): string => {
   return Math.random().toString(36).substring(2, 15);
@@ -21,8 +25,18 @@ const generateId = (): string => {
 class RPCService {
   private baseURL: string;
 
-  constructor(baseURL: string = '/rpc') {
-    this.baseURL = baseURL;
+  constructor(baseURL?: string) {
+    if (baseURL) {
+      this.baseURL = baseURL;
+      return;
+    }
+
+    if (isTauriEnvironment() || import.meta.env.DEV) {
+      this.baseURL = 'http://127.0.0.1:28789/rpc';
+      return;
+    }
+
+    this.baseURL = '/rpc';
   }
 
   private async call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
