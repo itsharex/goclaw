@@ -169,12 +169,21 @@ cd goclaw
 # 安装依赖
 go mod tidy
 
-# 编译
+# 仅编译 Go 程序
 go build -o goclaw .
 
+# 完整构建（包含 UI，推荐）
+make build-full
+
 # 或直接运行
-go run main.go
+go run main.go start
 ```
+
+本地可以访问 dashboard:
+```
+http://localhost:28789/dashboard/
+```
+
 
 ### 配置
 
@@ -282,6 +291,37 @@ goclaw 按以下顺序查找配置文件（找到第一个即使用）：
 # 查看帮助
 ./goclaw --help
 ```
+
+### 启动 Dashboard
+
+```bash
+# 启动 WebSocket Gateway（内置 Dashboard UI）
+./goclaw gateway run
+
+# 访问 Dashboard
+# 本地访问：http://localhost:28789/dashboard/
+# 远程访问：http://your-host:28789/dashboard/?token=YOUR_TOKEN
+```
+
+Dashboard 功能：
+- 实时聊天界面
+- 会话管理
+- Channel 状态监控
+- Cron 任务管理
+
+> **注意**：如果监听非本地地址（非 127.0.0.1/localhost），远程访问需要配置 `auth_token`：
+> ```json
+> {
+>   "gateway": {
+>     "websocket": {
+>       "host": "0.0.0.0",
+>       "port": 28789,
+>       "enable_auth": true,
+>       "auth_token": "your-secret-token"
+>     }
+>   }
+> }
+> ```
 
 ### 使用示例
 
