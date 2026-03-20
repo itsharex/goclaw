@@ -1,4 +1,4 @@
-.PHONY: help all build test test-race test-coverage test-verbose lint fmt fmt-check vet clean deps tidy check install-tools benchmark
+.PHONY: help all build test test-race test-coverage test-verbose lint fmt fmt-check vet clean deps tidy check install-tools benchmark build-ui build-full
 
 # Variables
 GOCMD=go
@@ -43,6 +43,21 @@ build:
 	@echo "$(COLOR_BLUE)Building $(BINARY_NAME)...$(COLOR_RESET)"
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) -ldflags="-X 'main.Version=$(VERSION)'" -o $(BUILD_DIR)/$(BINARY_NAME) .
+
+## build-ui: Build the UI frontend
+build-ui:
+	@echo "$(COLOR_BLUE)Building UI frontend...$(COLOR_RESET)"
+	@cd ui && npm install && npm run build
+	@echo "$(COLOR_GREEN)UI built successfully$(COLOR_RESET)"
+
+## build-full: Build UI and then build the binary (embeds UI)
+build-full: build-ui
+	@echo "$(COLOR_BLUE)Copying UI to gateway/ui_dist...$(COLOR_RESET)"
+	@rm -rf gateway/ui_dist && cp -r ui/dist gateway/ui_dist
+	@echo "$(COLOR_BLUE)Building $(BINARY_NAME) with embedded UI...$(COLOR_RESET)"
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) -ldflags="-X 'main.Version=$(VERSION)'" -o $(BUILD_DIR)/$(BINARY_NAME) .
+	@echo "$(COLOR_GREEN)Build complete! Binary: $(BUILD_DIR)/$(BINARY_NAME)$(COLOR_RESET)"
 
 ## test: Run all tests
 test:
@@ -117,6 +132,8 @@ clean:
 	$(GOCLEAN)
 	rm -f $(COVERAGE_FILE) $(COVERAGE_HTML)
 	rm -f $(BUILD_DIR)/$(BINARY_NAME)
+	rm -rf ui/dist
+	rm -rf gateway/ui_dist
 	@echo "$(COLOR_GREEN)Clean complete$(COLOR_RESET)"
 
 ## deps: Download dependencies

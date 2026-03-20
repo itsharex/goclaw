@@ -224,6 +224,13 @@ func (s *Server) startWebSocketServer(ctx context.Context) error {
 	// Channels API 端点
 	mux.HandleFunc("/api/channels", s.handleChannelsAPI)
 
+	// Dashboard UI 静态文件服务
+	// 如果监听地址不是 localhost/127.0.0.1，则要求认证
+	dashboardAuth := s.getDashboardAuthConfig()
+	mux.Handle("/dashboard/", DashboardHandler(dashboardAuth))
+	mux.Handle("/dashboard", DashboardHandler(dashboardAuth))
+	mux.Handle("/assets/", DashboardHandler(dashboardAuth))
+
 	// 创建 WebSocket 服务器
 	// 注意：不设置 ReadTimeout 和 WriteTimeout，因为 WebSocket 连接需要长连接
 	// 心跳机制由 WebSocket 自己管理
@@ -237,6 +244,7 @@ func (s *Server) startWebSocketServer(ctx context.Context) error {
 		logger.Info("WebSocket gateway server started",
 			zap.String("addr", s.wsServer.Addr),
 			zap.String("path", s.wsConfig.Path),
+			zap.Bool("dashboard_auth", dashboardAuth != nil && dashboardAuth.RequireAuth),
 		)
 
 		if err := s.wsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -245,6 +253,24 @@ func (s *Server) startWebSocketServer(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+// getDashboardAuthConfig 获取 Dashboard 认证配置
+// 如果启用了 WebSocket 认证且配置了 token，则需要认证（远程访问）
+// 本地访问（127.0.0.1/localhost）会自动跳过认证
+func (s *Server) getDashboardAuthConfig() *DashboardAuthConfig {
+	// 如果启用了 WebSocket 认证且有 token，则需要认证
+	if s.wsConfig.EnableAuth && s.wsConfig.AuthToken != "" {
+		return &DashboardAuthConfig{
+			RequireAuth: true,
+			AuthToken:   s.wsConfig.AuthToken,
+		}
+	}
+
+	// 否则不需要认证
+	return &DashboardAuthConfig{
+		RequireAuth: false,
+	}
 }
 
 // Stop 停止服务器
