@@ -61,24 +61,17 @@ body {
 .prose h2 { font-size: 1.15em; }
 .prose h3 { font-size: 1.1em; }
 
-.prose code {
-  background-color: rgba(0, 0, 0, 0.1);
-  padding: 0.1em 0.3em;
-  border-radius: 3px;
-  font-size: 0.9em;
-}
-
+/* 代码块样式 - 使用 react-syntax-highlighter 渲染，这里只保留备用样式 */
 .prose pre {
-  background-color: rgba(0, 0, 0, 0.1);
-  padding: 0.5em;
-  border-radius: 4px;
-  overflow-x: auto;
   margin: 0.5em 0;
+  border-radius: 0.5rem;
+  overflow-x: auto;
 }
 
-.prose pre code {
-  background-color: transparent;
-  padding: 0;
+/* 移除 tailwindcss/typography 给行内代码添加的反引号 */
+.prose code::before,
+.prose code::after {
+  content: none !important;
 }
 
 .prose blockquote {
